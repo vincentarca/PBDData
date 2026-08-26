@@ -151,6 +151,28 @@
     #map{min-height:420px;}
   }
 
+
+  /* ---- Build Index controls ---- */
+  .text-input{width:100%;font-family:inherit;font-size:13.5px;color:var(--sidebar-ink);font-weight:600;
+    background:var(--sidebar-soft);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:10px 12px;}
+  .text-input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .sel-count{color:var(--sidebar-muted);font-weight:600;text-transform:none;letter-spacing:0;}
+  .indicator-checklist{max-height:238px;overflow-y:auto;background:var(--sidebar-soft);
+    border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:6px 8px;}
+  .indicator-checklist::-webkit-scrollbar{width:8px;}
+  .indicator-checklist::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:8px;}
+  .chk-group{margin:2px 0 8px;}
+  .chk-group-h{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);
+    font-weight:800;margin:6px 2px 4px;}
+  .chk-item{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--sidebar-ink);
+    padding:4px 2px;cursor:pointer;line-height:1.25;border-radius:6px;}
+  .chk-item:hover{background:rgba(255,255,255,.04);}
+  .chk-item input{width:14px;height:14px;margin-top:1px;accent-color:var(--accent);flex-shrink:0;}
+  .checklist-actions{display:flex;gap:8px;margin-top:8px;}
+  .checklist-actions button{flex:1;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;
+    background:var(--sidebar-soft);color:var(--sidebar-muted);border:1px solid rgba(255,255,255,.1);
+    border-radius:8px;padding:7px 6px;}
+  .checklist-actions button:hover{color:#fff;border-color:var(--accent);}
 </style>
 </head>
 <body>
@@ -179,6 +201,15 @@
 
     <div class="rail-group">
       <div class="field">
+        <label>Mode</label>
+        <div class="toggle-group" id="modeToggle">
+          <button id="btnExplore" class="active">Explore</button>
+          <button id="btnIndex">Build Index</button>
+        </div>
+      </div>
+
+      <div id="exploreControls">
+      <div class="field">
         <label for="categorySelect">Category</label>
         <select id="categorySelect"></select>
       </div>
@@ -189,6 +220,26 @@
       <div class="field" id="yearField">
         <label for="yearSelect">Year</label>
         <select id="yearSelect"></select>
+      </div>
+      </div><!-- /exploreControls -->
+
+      <div id="indexControls" style="display:none;">
+        <div class="field">
+          <label for="indexName">Index name</label>
+          <input id="indexName" class="text-input" type="text" value="Health Index" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="presetSelect">Start from a preset</label>
+          <select id="presetSelect"></select>
+        </div>
+        <div class="field">
+          <label>Indicators <span id="selCount" class="sel-count"></span></label>
+          <div class="indicator-checklist" id="indicatorChecklist"></div>
+          <div class="checklist-actions">
+            <button type="button" id="selectAllBtn">Select all</button>
+            <button type="button" id="clearAllBtn">Clear</button>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>Color mode</label>
@@ -366,6 +417,7 @@ function zColumnFor(def, year) {
 
 function formatValue(def, val) {
   if (val === null || val === undefined || isNaN(val)) return '–';
+  if (def && def.isIndex) return (val >= 0 ? '+' : '') + val.toFixed(2);
   if (def.unit === '%') return val.toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%';
   return val.toLocaleString('en-US');
 }
@@ -404,17 +456,52 @@ PBD_GEOJSON.features.forEach(f => {
    State
 --------------------------------------------------------------------- */
 const state = {
-  dataByRegion: {},        // { 'KAB BOGOR': { Stunting2023: 1.65, ... } }
-  dataByNorm: {},          // normalized-name -> row, for matching geojson names
-  regionRows: [],          // array of raw rows as parsed (for iteration)
+  dataByRegion: {},
+  dataByNorm: {},
+  regionRows: [],
   category: 'kia',
   indicatorKey: 'Stunting2024',
   year: 2023,
   colorMode: 'highlight',   // 'highlight' | 'diverging' | 'raw'
-  selectedRegion: null
+  selectedRegion: null,
+  mode: 'explore',          // 'explore' | 'index'
+  indexName: 'Health Index',
+  selected: new Set(['Stunting2024','BirthNakes2025','IDL2025','TalakResp','ANCK4','BirthFaskes','KNLengkap'])
 };
 
-function currentDef() { return indicatorByKey(state.indicatorKey); }
+/* One-click starting bundles for Build Index. Fully editable after picking —
+   every indicator stays individually tickable. */
+const INDEX_PRESETS = {
+  mch:      { name: 'Maternal & Child Health',    keys: ['Stunting2024','BirthNakes2025','IDL2025','TalakResp','ANCK4','BirthFaskes','KNLengkap'] },
+  overall:  { name: 'Overall Health Needs',       keys: ['Stunting2024','BirthNakes2025','IDL2025','TalakResp','ANCK4','BirthFaskes','KNLengkap','Kusta','Malaria','Dengue'] },
+  capacity: { name: 'Facility & Capacity',        keys: ['TenagaMedis','TenagaPerawat','TenagaFarmasi','TenagaKesmas','TenagaGizi','PKMRanap','PKMTanpaRanap'] },
+  climate:  { name: 'Climate Resilience Needs',   keys: ['IKP','IRBI'] }
+};
+
+// Synthetic indicator def representing the live composite index.
+function indexDef() {
+  return { key: '__index__', label: state.indexName || 'Index', category: '__index__',
+           unit: 'index', direction: 'bad_high', single: true, isIndex: true };
+}
+function currentDef() { return state.mode === 'index' ? indexDef() : indicatorByKey(state.indicatorKey); }
+
+function selectedDefs() {
+  return [...state.selected].map(k => indicatorByKey(k)).filter(Boolean);
+}
+// Composite = equal-weight mean of selected indicators' z-scores, each oriented
+// so HIGHER = more need (bad_high kept as-is; good_high sign-flipped).
+function compositeForRegion(regionName) {
+  const defs = selectedDefs();
+  if (!defs.length) return null;
+  let sum = 0, n = 0;
+  defs.forEach(d => {
+    const z = zForRegion(regionName, d, null);
+    if (z === null || z === undefined || isNaN(z)) return;
+    sum += (d.direction === 'good_high' ? -z : z);
+    n++;
+  });
+  return n ? sum / n : null;
+}
 
 /* ---------------------------------------------------------------------
    Ingest — CONFIG.COLS.region tells us which column holds the region name;
@@ -446,6 +533,7 @@ function ingestRows(raw) {
 }
 
 function valueForRegion(regionName, def, year) {
+  if (def.isIndex) return compositeForRegion(regionName);
   // Match the geojson region name to a data row via normalized names, so
   // "Kabupaten Bogor" (map) lines up with "KAB BOGOR" (sheet).
   const row = state.dataByNorm[normName(regionName)] || state.dataByRegion[regionName];
@@ -458,6 +546,7 @@ function valueForRegion(regionName, def, year) {
 // Normalized z-score for a region, if a matching "_z" column exists in the data.
 // Returns null when there's no z column (caller then falls back to raw scaling).
 function zForRegion(regionName, def, year) {
+  if (def.isIndex) return compositeForRegion(regionName);
   const row = state.dataByNorm[normName(regionName)] || state.dataByRegion[regionName];
   if (!row) return null;
   const zcol = zColumnFor(def, year);
@@ -473,6 +562,7 @@ function zForRegion(regionName, def, year) {
 
 // Does the current indicator/year have any z-score data at all?
 function hasZData(def, year) {
+  if (def.isIndex) return PBD_GEOJSON.features.some(f => compositeForRegion(f.properties.name) !== null);
   return PBD_GEOJSON.features.some(f => zForRegion(f.properties.name, def, year) !== null);
 }
 
@@ -569,6 +659,7 @@ function renderDetail(regionFullName) {
   hint.style.display = 'none';
 
   const def = currentDef();
+  if (def.isIndex) { renderIndexDetail(regionFullName, card); return; }
   let trendRows = '';
   if (def.single) {
     const v = valueForRegion(regionFullName, def, null);
@@ -595,6 +686,30 @@ function renderDetail(regionFullName) {
   <div class="detail-card">
     <div class="detail-region" style="font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em;">Other indicators — ${CATEGORY_LABELS[def.category]}</div>
     <table>${othersRows}</table>
+  </div>`;
+}
+
+function renderIndexDetail(regionFullName, card) {
+  const comp = compositeForRegion(regionFullName);
+  const defs = selectedDefs();
+  let rows = defs.map(d => {
+    const z = zForRegion(regionFullName, d, null);
+    const o = (z === null || isNaN(z)) ? null : (d.direction === 'good_high' ? -z : z);
+    const txt = (o === null) ? '–' : (o >= 0 ? '+' : '') + o.toFixed(2);
+    const col = (o === null) ? 'var(--muted)' : (o > 0 ? 'var(--rose)' : 'var(--accent)');
+    return `<tr><td class="k">${d.label}</td><td class="v" style="color:${col}">${txt}</td></tr>`;
+  }).join('');
+  if (!defs.length) rows = `<tr><td class="k">No indicators selected</td><td class="v">–</td></tr>`;
+  const cTxt = (comp === null) ? '–' : (comp >= 0 ? '+' : '') + comp.toFixed(2);
+  const cCol = (comp === null) ? 'var(--muted)' : (comp > 0 ? 'var(--rose)' : 'var(--accent)');
+  card.innerHTML = `<div class="detail-card">
+    <div class="detail-region">${regionFullName}</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+      <span>${state.indexName || 'Index'} · composite score</span>
+      <span style="font-size:17px;font-weight:800;color:${cCol};">${cTxt}</span>
+    </div>
+    <div class="detail-region" style="font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em;">Contribution · oriented z (higher = more need)</div>
+    <table>${rows}</table>
   </div>`;
 }
 
@@ -667,8 +782,47 @@ function renderMap() {
 /* ---------------------------------------------------------------------
    Stats + ranking
 --------------------------------------------------------------------- */
+function renderIndexStats(def) {
+  const entries = PBD_GEOJSON.features.map(f => ({
+    region: f.properties.name, val: compositeForRegion(f.properties.name)
+  })).filter(e => e.val !== null && e.val !== undefined && !isNaN(e.val));
+  const nSel = state.selected.size;
+  const ranked = [...entries].sort((a, b) => b.val - a.val);   // highest need first
+  const top = ranked[0];
+
+  document.getElementById('statTotal').textContent = String(nSel);
+  document.getElementById('statTotalLbl').textContent = 'Indicators in this index';
+  document.getElementById('statCoverage').textContent = `${entries.length}/${PBD_GEOJSON.features.length}`;
+  document.getElementById('statCoverageLbl').textContent = 'Kab/kota scored';
+  document.getElementById('statMax').textContent = top ? formatValue(def, top.val) : '–';
+  document.getElementById('statMaxLbl').textContent = top ? `Highest need · ${top.region}` : 'Highest need';
+
+  document.getElementById('mapTitle').textContent = state.indexName || 'Index';
+  document.getElementById('mapCtx').textContent = `${nSel} indicator${nSel === 1 ? '' : 's'} · equal-weight z · higher = more need`;
+  document.getElementById('subtitleText').textContent = `6 kabupaten/kota · ${nSel}/${INDICATOR_DEFS.length} indicators selected`;
+  document.getElementById('top5Title').textContent = 'Priority ranking — highest need';
+
+  if (!entries.length) {
+    document.getElementById('top5List').innerHTML =
+      `<div style="font-size:12.5px;color:var(--muted);line-height:1.5;">Tick one or more indicators to build the index.</div>`;
+    return;
+  }
+  const comps = entries.map(e => e.val);
+  const lo = Math.min(...comps), hi = Math.max(...comps);
+  document.getElementById('top5List').innerHTML = ranked.slice(0, 5).map((e, i) => {
+    const w = hi > lo ? ((e.val - lo) / (hi - lo) * 100) : 50;
+    return `<div class="top5-row">
+      <span class="rank r${i + 1}">${i + 1}</span>
+      <span class="name" title="${e.region}">${e.region}</span>
+      <span class="bar-bg"><span class="bar-fill" style="width:${w}%"></span></span>
+      <span class="val">${formatValue(def, e.val)}</span>
+    </div>`;
+  }).join('');
+}
+
 function renderStats() {
   const def = currentDef();
+  if (def.isIndex) { renderIndexStats(def); return; }
   const year = def.single ? null : state.year;
   const entries = PBD_GEOJSON.features.map(f => ({
     region: f.properties.name,
@@ -789,6 +943,82 @@ function wireControls() {
   document.getElementById('refreshBtn').addEventListener('click', () => loadData(true));
 }
 
+function populatePresets() {
+  const sel = document.getElementById('presetSelect');
+  const opts = Object.entries(INDEX_PRESETS)
+    .map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('');
+  sel.innerHTML = `<option value="custom">Custom selection</option>` + opts;
+}
+function updateSelCount() {
+  const el = document.getElementById('selCount');
+  if (el) el.textContent = `(${state.selected.size} of ${INDICATOR_DEFS.length})`;
+}
+function buildChecklist() {
+  const el = document.getElementById('indicatorChecklist');
+  let html = '';
+  Object.keys(CATEGORY_LABELS).forEach(cat => {
+    const defs = INDICATOR_DEFS.filter(d => d.category === cat);
+    if (!defs.length) return;
+    html += `<div class="chk-group"><div class="chk-group-h">${CATEGORY_LABELS[cat]}</div>`;
+    defs.forEach(d => {
+      html += `<label class="chk-item"><input type="checkbox" data-key="${d.key}" ${state.selected.has(d.key) ? 'checked' : ''}><span>${d.label}</span></label>`;
+    });
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selected.add(cb.dataset.key); else state.selected.delete(cb.dataset.key);
+      document.getElementById('presetSelect').value = 'custom';
+      updateSelCount(); rerender();
+    });
+  });
+  updateSelCount();
+}
+function syncChecklist() {
+  document.querySelectorAll('#indicatorChecklist input[type=checkbox]').forEach(cb => {
+    cb.checked = state.selected.has(cb.dataset.key);
+  });
+  updateSelCount();
+}
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('btnExplore').classList.toggle('active', mode === 'explore');
+  document.getElementById('btnIndex').classList.toggle('active', mode === 'index');
+  document.getElementById('exploreControls').style.display = mode === 'explore' ? '' : 'none';
+  document.getElementById('indexControls').style.display = mode === 'index' ? '' : 'none';
+  if (mode === 'explore') populateYearSelect();
+  rerender();
+}
+function wireIndexControls() {
+  populatePresets();
+  buildChecklist();
+  document.getElementById('btnExplore').addEventListener('click', () => setMode('explore'));
+  document.getElementById('btnIndex').addEventListener('click', () => setMode('index'));
+  document.getElementById('indexName').addEventListener('input', (e) => {
+    state.indexName = e.target.value; if (state.mode === 'index') rerender();
+  });
+  document.getElementById('presetSelect').addEventListener('change', (e) => {
+    const p = INDEX_PRESETS[e.target.value];
+    if (p) {
+      state.selected = new Set(p.keys);
+      state.indexName = p.name;
+      document.getElementById('indexName').value = p.name;
+      syncChecklist(); rerender();
+    }
+  });
+  document.getElementById('selectAllBtn').addEventListener('click', () => {
+    state.selected = new Set(INDICATOR_DEFS.map(d => d.key));
+    document.getElementById('presetSelect').value = 'custom';
+    syncChecklist(); rerender();
+  });
+  document.getElementById('clearAllBtn').addEventListener('click', () => {
+    state.selected = new Set();
+    document.getElementById('presetSelect').value = 'custom';
+    syncChecklist(); rerender();
+  });
+}
+
 function setColorMode(mode) {
   state.colorMode = mode;
   const map = { highlight: 'btnHighlight', diverging: 'btnDiverging', raw: 'btnRaw' };
@@ -877,6 +1107,7 @@ function loadData() {
    Init
 --------------------------------------------------------------------- */
 wireControls();
+wireIndexControls();
 loadData();
 window.addEventListener('resize', () => { if (typeof map !== 'undefined') map.invalidateSize(); });
 
