@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Papua Barat Daya — Health Indicators</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root{
+    --ink:#22282e;
+    --bg:#f4f2ec;              /* warm paper */
+    --sidebar:#1f2a2e;         /* deep teal-charcoal rail */
+    --sidebar-soft:#28353a;
+    --sidebar-ink:#e8ede9;
+    --sidebar-muted:#93a6a2;
+    --card:#ffffff;
+    --line:#e2ddd2;
+    --line-soft:#eee9df;
+    --muted:#7a756a;
+    --accent:#0d7d6e;          /* emerald-teal */
+    --accent-deep:#0a5c51;
+    --gold:#c98a2b;
+    --rose:#c5493f;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,Arial,sans-serif;
+  }
+
+  /* ---- App shell: fixed left rail + fluid main ---- */
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{
+    width:340px;flex-shrink:0;
+    background:var(--sidebar);
+    color:var(--sidebar-ink);
+    padding:26px 24px 30px;
+    display:flex;flex-direction:column;gap:22px;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .main{flex:1;min-width:0;padding:26px 30px 40px;display:flex;flex-direction:column;}
+
+  /* ---- Brand ---- */
+  .brand{display:flex;align-items:center;gap:13px;}
+  .brand .mark{
+    width:40px;height:40px;border-radius:11px;flex-shrink:0;
+    background:linear-gradient(135deg,var(--accent),var(--gold));
+    display:flex;align-items:center;justify-content:center;
+  }
+  .brand h1{font-size:17px;margin:0;font-weight:800;letter-spacing:-0.01em;line-height:1.2;color:#fff;}
+  .brand .sub{font-size:11.5px;color:var(--sidebar-muted);margin-top:2px;}
+
+  /* ---- Live status in sidebar ---- */
+  .live-pill{
+    display:flex;align-items:center;gap:9px;
+    background:var(--sidebar-soft);border:1px solid rgba(255,255,255,.06);
+    border-radius:10px;padding:9px 11px;font-size:11.5px;color:var(--sidebar-muted);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;flex-shrink:0;box-shadow:0 0 0 3px rgba(13,125,110,.2);}
+  .dot.stale{background:var(--gold);box-shadow:0 0 0 3px rgba(201,138,43,.2);}
+  .dot.err{background:var(--rose);box-shadow:0 0 0 3px rgba(197,73,63,.2);}
+  .live-pill span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  button.refresh{
+    border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;
+    padding:6px 11px;border-radius:8px;cursor:pointer;font-family:inherit;flex-shrink:0;
+  }
+  button.refresh:hover{background:var(--accent-deep);}
+  button.refresh:disabled{opacity:0.5;cursor:default;}
+
+  /* ---- Sidebar controls ---- */
+  .rail-group{display:flex;flex-direction:column;gap:16px;}
+  .field label, .rail-label{
+    display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--sidebar-muted);font-weight:800;margin-bottom:7px;
+  }
+  select{
+    width:100%;
+    appearance:none;-webkit-appearance:none;
+    font-family:inherit;font-size:13.5px;color:var(--sidebar-ink);font-weight:500;
+    background:var(--sidebar-soft) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%2393a6a2"/></svg>') no-repeat right 12px center;
+    border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:10px 32px 10px 12px;cursor:pointer;
+  }
+  select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .toggle-group{display:flex;border:1px solid rgba(255,255,255,.08);border-radius:9px;overflow:hidden;background:var(--sidebar-soft);}
+  .toggle-group button{
+    flex:1;font-family:inherit;font-size:12px;font-weight:700;border:none;background:transparent;
+    color:var(--sidebar-muted);padding:9px 6px;cursor:pointer;transition:all .12s;
+  }
+  .toggle-group button.active{background:var(--accent);color:#fff;}
+  .checkfield{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--sidebar-ink);cursor:pointer;}
+  .checkfield input{width:15px;height:15px;accent-color:var(--accent);}
+
+  /* ---- Sidebar stat strip ---- */
+  .rail-stats{display:flex;flex-direction:column;gap:1px;background:rgba(255,255,255,.06);border-radius:11px;overflow:hidden;border:1px solid rgba(255,255,255,.06);}
+  .rail-stat{background:var(--sidebar);padding:13px 14px;}
+  .rail-stat .num{font-size:23px;font-weight:800;color:#fff;letter-spacing:-0.02em;line-height:1;}
+  .rail-stat .lbl{font-size:11px;color:var(--sidebar-muted);margin-top:4px;}
+
+  .rail-divider{height:1px;background:rgba(255,255,255,.07);margin:2px 0;}
+  .rail-foot{font-size:10.5px;color:var(--sidebar-muted);line-height:1.5;margin-top:auto;}
+
+  /* ---- Main area: map hero ---- */
+  .map-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .map-head h2{font-size:22px;margin:0;font-weight:800;letter-spacing:-0.02em;}
+  .map-head .ctx{font-size:12.5px;color:var(--muted);}
+  .map-wrap{
+    flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:8px;box-shadow:0 1px 3px rgba(40,40,30,.05);display:flex;flex-direction:column;min-height:0;
+  }
+  #map{flex:1;min-height:520px;border-radius:10px;background:#e8eae2;}
+  .legend-row{display:flex;align-items:center;gap:10px;padding:12px 10px 6px;font-size:11.5px;color:var(--muted);}
+  .legend-scale{width:220px;height:9px;border-radius:5px;}
+  .legend-range{margin-left:auto;font-variant-numeric:tabular-nums;}
+
+  /* ---- Detail drawer (right side of main, appears on selection) ---- */
+  .content-grid{display:grid;grid-template-columns:1fr 320px;gap:22px;flex:1;min-height:0;}
+  @media (max-width:1100px){.content-grid{grid-template-columns:1fr;}}
+  .side-col{display:flex;flex-direction:column;gap:20px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 18px;box-shadow:0 1px 3px rgba(40,40,30,.05);}
+  .card h3{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800;margin:0 0 14px;}
+
+  .detail-hint{font-size:12.5px;color:var(--muted);line-height:1.55;margin:0;}
+  .detail-region{font-size:16px;font-weight:800;margin:0 0 12px;letter-spacing:-0.01em;}
+  .detail-card table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .detail-card td{padding:5px 0;border-bottom:1px solid var(--line-soft);}
+  .detail-card tr:last-child td{border-bottom:none;}
+  .detail-card td.k{color:var(--muted);}
+  .detail-card td.v{text-align:right;font-weight:700;}
+  .detail-card + .detail-card{margin-top:14px;}
+
+  .top5-row{display:flex;align-items:center;gap:10px;margin-bottom:11px;font-size:12.5px;}
+  .top5-row .rank{width:19px;height:19px;border-radius:6px;background:var(--accent);color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .top5-row .rank.r2{background:var(--accent-deep);}
+  .top5-row .rank.r3{background:#3f7d73;}
+  .top5-row .rank.r4,.top5-row .rank.r5{background:#8aa39d;}
+  .top5-row .name{width:100px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .top5-row .bar-bg{flex:1;background:var(--line-soft);border-radius:4px;height:7px;overflow:hidden;}
+  .top5-row .bar-fill{background:linear-gradient(90deg,var(--accent),var(--gold));height:100%;border-radius:4px;}
+  .top5-row .val{width:52px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums;}
+
+  .region-path{cursor:pointer;transition:filter .12s ease;}
+  .region-path:hover{filter:brightness(1.06);}
+
+  @media (max-width:820px){
+    .shell{flex-direction:column;}
+    .sidebar{width:auto;height:auto;position:static;}
+    #map{min-height:420px;}
+  }
+
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ==================== LEFT SIDEBAR ==================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z"/>
+          <circle cx="12" cy="10" r="2.4"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Papua Barat Daya — Health Indicators</h1>
+        <div class="sub" id="subtitleText">6 kabupaten/kota · loading…</div>
+      </div>
+    </div>
+
+    <div class="live-pill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Loading live data…</span>
+      <button class="refresh" id="refreshBtn">Refresh</button>
+    </div>
+
+    <div class="rail-group">
+      <div class="field">
+        <label for="categorySelect">Category</label>
+        <select id="categorySelect"></select>
+      </div>
+      <div class="field">
+        <label for="diseaseSelect">Indicator</label>
+        <select id="diseaseSelect"></select>
+      </div>
+      <div class="field" id="yearField">
+        <label for="yearSelect">Year</label>
+        <select id="yearSelect"></select>
+      </div>
+      <div class="field">
+        <label>Color mode</label>
+        <div class="toggle-group">
+          <button id="btnHighlight" class="active">Highlight</button>
+          <button id="btnDiverging">Diverging</button>
+          <button id="btnRaw">Raw</button>
+        </div>
+      </div>
+      <label class="checkfield">
+        <input type="checkbox" id="showLabels" checked>
+        Show value labels on map
+      </label>
+    </div>
+
+    <div class="rail-divider"></div>
+
+    <div class="rail-stats">
+      <div class="rail-stat"><div class="num" id="statTotal">–</div><div class="lbl" id="statTotalLbl">Total</div></div>
+      <div class="rail-stat"><div class="num" id="statCoverage">–</div><div class="lbl" id="statCoverageLbl">Regencies/cities with a value</div></div>
+      <div class="rail-stat"><div class="num" id="statMax">–</div><div class="lbl" id="statMaxLbl">Highest value</div></div>
+    </div>
+
+    <div class="rail-foot" id="footNote">
+      Boundaries: simplified administrative polygons of the 6 Papua Barat Daya kab/kota (source: BIG via ardian28/GeoJson-Indonesia-38-Provinsi). Cells show raw figures; map colour is driven by the pre-computed z-scores (the "_z" columns), oriented so red = worse-off / higher programme priority.
+    </div>
+  </aside>
+
+  <!-- ==================== MAIN AREA ==================== -->
+  <main class="main">
+    <div class="map-head">
+      <h2 id="mapTitle">Stunting — 2023</h2>
+      <span class="ctx" id="mapCtx"></span>
+    </div>
+
+    <div class="content-grid">
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="legend-row">
+          <span id="legendLow">Low</span>
+          <div class="legend-scale" id="legendScale"></div>
+          <span id="legendHigh">High</span>
+          <span class="legend-range" id="legendRange">0 – 0</span>
+        </div>
+      </div>
+
+      <div class="side-col">
+        <div class="card">
+          <h3>Kabupaten / Kota Detail</h3>
+          <p class="detail-hint" id="detailHint">Hover or tap a region on the map to see its full breakdown across indicators.</p>
+          <div id="detailCard"></div>
+        </div>
+        <div class="card">
+          <h3 id="top5Title">Top 5</h3>
+          <div id="top5List"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/* =========================================================================
+   CONFIG — point this at your data source to go live.
+
+   OPTION A — Excel file hosted on GitHub (recommended, avoids Google's
+   CORS/redirect issues entirely):
+     1. Open your .xlsx file on github.com in the repo.
+     2. Click the "Raw" button (top right of the file preview).
+     3. Copy that URL — it looks like:
+        https://raw.githubusercontent.com/USERNAME/REPO/main/data.xlsx
+     4. Paste it into EXCEL_URL below.
+
+   OPTION B — Published Google Sheet CSV (kept as a fallback path):
+     Paste that link into SHEET_CSV_URL instead, and leave EXCEL_URL as null.
+
+   If both are null, the page uses the bundled DEMO_DATA.
+
+   NORMALIZED (Z-SCORE) COLORING — optional but recommended:
+     Map color can be driven by your pre-calculated normalized values instead
+     of raw numbers, so severity shows correctly (e.g. 30% stunting reads as
+     alarming, not "still green"). To enable it for an indicator, add a column
+     to your sheet named exactly <raw column> + "_z":
+        Stunting2023 -> Stunting2023_z
+        PMK2024      -> PMK2024_z   (put your log-then-z value here)
+        IRBI         -> IRBI_z
+     The map uses the _z value for color; labels, stats, and legend still show
+     the RAW value. Any indicator without a _z column simply colors by its raw
+     value, so you can add them gradually. The "Color mode" toggle switches
+     between Highlight (white -> red on the worse tail), Diverging
+     (green -> yellow -> red), and Raw (ignore _z, color by raw value).
+   ========================================================================= */
+const CONFIG = {
+  EXCEL_URL: 'https://raw.githubusercontent.com/vincentarca/PBDData/main/Data%20Visualization%20PBD.xlsx',
+  EXCEL_SHEET_NAME: 'Compile',  // the sheet holding the 6 kab/kota rows + _z columns
+
+  SHEET_CSV_URL: null,
+
+  // Column holding the region name (matched case-insensitively to the map).
+  COLS: { region: 'KabKota' }
+};
+
+/* =========================================================================
+   GEOJSON — West Java 27 kabupaten/kota boundaries (simplified)
+   Source: ghapsara/indonesia-atlas (topojson), converted + re-simplified.
+   ========================================================================= */
+const PBD_GEOJSON = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"MultiPolygon","coordinates":[[[[130.4288,-1.9529],[130.3886,-1.9529],[130.3533,-1.9194],[130.4079,-1.8975],[130.4432,-1.8266],[130.4204,-1.7785],[130.3535,-1.7376],[130.3809,-1.6911],[130.3328,-1.6846],[130.2708,-1.6995],[130.2567,-1.7296],[130.1982,-1.7179],[130.096,-1.7296],[130.0624,-1.7241],[130.0098,-1.7423],[129.9781,-1.7702],[129.8988,-1.7855],[129.8656,-1.821],[129.736,-1.8591],[129.7304,-1.9004],[129.8013,-1.9319],[129.8604,-1.9754],[129.9742,-2.0129],[129.9879,-2.0009],[130.0785,-2.0266],[130.1385,-2.0555],[130.2081,-2.0621],[130.2666,-2.0534],[130.3283,-1.9687],[130.3527,-1.9808],[130.4288,-1.9529]]],[[[129.8399,-1.157],[129.7574,-1.1723],[129.8184,-1.2164],[129.8866,-1.1962],[129.9313,-1.2155],[129.9777,-1.1705],[129.8399,-1.157]]],[[[130.525,-0.0498],[130.5269,-0.0662],[130.4127,-0.1146],[130.3999,-0.0831],[130.2816,-0.1123],[130.3069,-0.1757],[130.3783,-0.1559],[130.3737,-0.206],[130.2865,-0.226],[130.3431,-0.2556],[130.5348,-0.2575],[130.5177,-0.2954],[130.5482,-0.3266],[130.5484,-0.3818],[130.59,-0.377],[130.5816,-0.3175],[130.6945,-0.3001],[130.693,-0.3488],[130.7271,-0.4394],[130.8131,-0.4374],[130.9184,-0.3932],[130.9395,-0.3634],[130.93,-0.3299],[130.853,-0.31],[130.8471,-0.2932],[130.7453,-0.2915],[130.7196,-0.2356],[130.6563,-0.1521],[130.6311,-0.1481],[130.6371,-0.0935],[130.6944,-0.0779],[130.7218,-0.1367],[130.7772,-0.1552],[130.8005,-0.242],[130.8686,-0.235],[130.9418,-0.3422],[131.0358,-0.3372],[131.1024,-0.3223],[131.1899,-0.3422],[131.2471,-0.3799],[131.3056,-0.3036],[131.3126,-0.2666],[131.2954,-0.2208],[131.3119,-0.1844],[131.2583,-0.1359],[131.1906,-0.1227],[131.1328,-0.0706],[131.0461,-0.0627],[131.0402,-0.031],[130.9922,-0.0446],[130.9375,-0.0406],[130.8842,-0.0165],[130.7949,-0.0061],[130.6389,-0.0546],[130.5972,-0.0445],[130.5435,-0.0684],[130.525,-0.0498]]],[[[130.7045,-1.052],[130.8404,-1.1093],[130.8637,-1.1327],[130.9492,-1.128],[131.0345,-1.1953],[131.0685,-1.1039],[131.0813,-1.0331],[131.0495,-0.9306],[131.0315,-0.9126],[130.94,-0.9411],[130.921,-0.8889],[130.8678,-0.8948],[130.7411,-0.9292],[130.6348,-0.9803],[130.7045,-1.052]]],[[[130.6359,-0.5211],[130.6624,-0.5081],[130.6968,-0.4481],[130.6493,-0.4107],[130.5955,-0.4127],[130.5231,-0.468],[130.5047,-0.4387],[130.4687,-0.4725],[130.512,-0.5062],[130.6359,-0.5211]]],[[[130.4872,-0.791],[130.4485,-0.8286],[130.4479,-0.8987],[130.5198,-0.8952],[130.5912,-0.9136],[130.8491,-0.86],[130.8553,-0.7644],[130.767,-0.8193],[130.5665,-0.7938],[130.5509,-0.8366],[130.4864,-0.8268],[130.4872,-0.791]]],[[[129.8912,-0.3979],[129.8571,-0.415],[129.8458,-0.449],[129.8638,-0.4907],[129.9007,-0.4797],[129.9242,-0.4127],[129.8912,-0.3979]]],[[[130.1384,0.0161],[130.1018,0.01],[130.0987,-0.0674],[130.131,-0.0967],[130.1511,-0.0456],[130.1206,-0.0362],[130.1384,0.0161]]],[[[131.1413,-1.0072],[131.0975,-1.0031],[131.0781,-1.0791],[131.1505,-1.0192],[131.1413,-1.0072]]]]},"properties":{"name":"Raja Ampat","short":"Raja Ampat"}},{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[131.7781,-1.5735],[131.81,-1.6135],[131.8537,-1.5695],[131.8916,-1.6105],[131.8811,-1.6364],[131.9175,-1.7198],[131.9758,-1.7052],[132.027,-1.7144],[131.9216,-1.8137],[131.9478,-1.8489],[131.9285,-1.8815],[131.9889,-1.9328],[131.9743,-1.9726],[132.0343,-2.0225],[132.04,-2.0708],[132.1426,-2.1486],[132.1805,-2.1534],[132.2332,-2.1898],[132.2972,-2.2702],[132.3803,-2.2629],[132.4325,-2.2328],[132.5268,-2.195],[132.5988,-2.1988],[132.6941,-2.0705],[132.6256,-1.9832],[132.6561,-1.962],[132.6222,-1.8761],[132.627,-1.858],[132.5223,-1.8202],[132.4957,-1.826],[132.4468,-1.8849],[132.4417,-1.8324],[132.4093,-1.7812],[132.5073,-1.7673],[132.4797,-1.7307],[132.4204,-1.7589],[132.397,-1.7017],[132.4358,-1.6045],[132.4079,-1.5628],[132.3629,-1.5379],[132.256,-1.4174],[132.1691,-1.3467],[132.1146,-1.3239],[132.0939,-1.25],[132.0713,-1.0903],[132.0185,-1.0533],[131.9907,-1.0816],[131.9166,-1.0549],[131.8759,-1.097],[131.8502,-1.1897],[131.863,-1.2358],[131.8958,-1.2825],[131.8915,-1.3146],[131.8377,-1.3446],[131.815,-1.386],[131.8207,-1.4817],[131.7925,-1.4914],[131.8027,-1.5475],[131.7781,-1.5735]]]},"properties":{"name":"Sorong Selatan","short":"Sorong Selatan"}},{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[132.9048,-1.2938],[133.0,-1.3554],[133.1154,-1.2909],[133.154,-1.251],[133.1966,-1.2406],[133.2386,-1.2519],[133.2644,-1.1932],[133.3726,-1.2226],[133.4324,-1.1781],[133.4243,-1.1494],[133.469,-0.9011],[133.4412,-0.863],[133.4371,-0.8058],[133.4724,-0.7999],[133.4858,-0.7406],[133.3985,-0.7416],[133.3192,-0.6973],[133.2354,-0.6052],[133.1766,-0.5837],[133.1462,-0.5437],[133.0999,-0.5481],[133.0722,-0.5164],[133.0309,-0.5196],[132.9727,-0.4944],[132.9545,-0.4539],[132.9013,-0.4635],[132.6822,-0.3718],[132.596,-0.3585],[132.5125,-0.3604],[132.4202,-0.3445],[132.3389,-0.3853],[132.2655,-0.3816],[132.2073,-0.4099],[132.0945,-0.4803],[132.0695,-0.5423],[131.9908,-0.5688],[131.9035,-0.6539],[131.9041,-0.6755],[131.8442,-0.7075],[131.7457,-0.7305],[131.7616,-0.799],[131.8408,-0.7714],[131.906,-0.7156],[132.0104,-0.7194],[132.0754,-0.7395],[132.1135,-0.7828],[132.1574,-0.7735],[132.1923,-0.8007],[132.2364,-0.7913],[132.2876,-0.8107],[132.2479,-0.8947],[132.2412,-0.9428],[132.2768,-0.9243],[132.4028,-0.9906],[132.4041,-1.0149],[132.4755,-1.0346],[132.5636,-1.007],[132.6117,-1.063],[132.568,-1.099],[132.5783,-1.1452],[132.6927,-1.176],[132.786,-1.1486],[132.821,-1.1908],[132.8109,-1.2184],[132.9048,-1.2938]]]},"properties":{"name":"Tambrauw","short":"Tambrauw"}},{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[132.0713,-1.0903],[132.0939,-1.25],[132.1146,-1.3239],[132.1691,-1.3467],[132.256,-1.4174],[132.3629,-1.5379],[132.4079,-1.5628],[132.4358,-1.6045],[132.397,-1.7017],[132.4204,-1.7589],[132.4797,-1.7307],[132.5073,-1.7673],[132.4093,-1.7812],[132.4417,-1.8324],[132.4468,-1.8849],[132.4957,-1.826],[132.5223,-1.8202],[132.627,-1.858],[132.6222,-1.8761],[132.7143,-1.8831],[132.7366,-1.8489],[132.7724,-1.7263],[132.7697,-1.654],[132.7873,-1.5739],[132.8232,-1.5562],[132.8565,-1.4936],[132.8544,-1.4498],[132.8866,-1.4222],[132.9093,-1.3626],[132.9048,-1.2938],[132.8109,-1.2184],[132.821,-1.1908],[132.786,-1.1486],[132.6927,-1.176],[132.5783,-1.1452],[132.568,-1.099],[132.6117,-1.063],[132.5636,-1.007],[132.4755,-1.0346],[132.4041,-1.0149],[132.4028,-0.9906],[132.2768,-0.9243],[132.2105,-0.9689],[132.2261,-1.0452],[132.1584,-1.1098],[132.1336,-1.092],[132.0713,-1.0903]]]},"properties":{"name":"Maybrat","short":"Maybrat"}},{"type":"Feature","geometry":{"type":"MultiPolygon","coordinates":[[[[131.2967,-0.9155],[131.2717,-0.9177],[131.262,-0.9932],[131.2409,-1.0269],[131.249,-1.0828],[131.1762,-1.221],[131.0567,-1.2531],[131.0237,-1.2855],[130.9948,-1.3866],[130.9352,-1.4204],[130.9964,-1.4571],[131.0936,-1.4494],[131.1648,-1.4629],[131.2077,-1.5226],[131.2819,-1.5041],[131.3352,-1.4641],[131.3302,-1.4275],[131.2697,-1.3858],[131.3152,-1.3716],[131.3239,-1.3296],[131.4029,-1.4328],[131.39,-1.4628],[131.4452,-1.5069],[131.5,-1.4693],[131.5476,-1.4883],[131.5888,-1.453],[131.6639,-1.4494],[131.7038,-1.4262],[131.7395,-1.4425],[131.7453,-1.4944],[131.6943,-1.5472],[131.713,-1.5793],[131.7781,-1.5735],[131.8027,-1.5475],[131.7925,-1.4914],[131.8207,-1.4817],[131.815,-1.386],[131.8377,-1.3446],[131.8915,-1.3146],[131.8958,-1.2825],[131.863,-1.2358],[131.8502,-1.1897],[131.8759,-1.097],[131.9166,-1.0549],[131.9907,-1.0816],[132.0185,-1.0533],[132.0713,-1.0903],[132.1336,-1.092],[132.1584,-1.1098],[132.2261,-1.0452],[132.2105,-0.9689],[132.2412,-0.9428],[132.2479,-0.8947],[132.2876,-0.8107],[132.2364,-0.7913],[132.1923,-0.8007],[132.1574,-0.7735],[132.1135,-0.7828],[132.0754,-0.7395],[132.0104,-0.7194],[131.906,-0.7156],[131.8408,-0.7714],[131.7616,-0.799],[131.7457,-0.7305],[131.5582,-0.7658],[131.5422,-0.7292],[131.5082,-0.7298],[131.4018,-0.7767],[131.3573,-0.7818],[131.3764,-0.8404],[131.3704,-0.8896],[131.3944,-0.9351],[131.3343,-0.9475],[131.2967,-0.9155]]],[[[130.7045,-1.052],[130.7182,-1.0963],[130.7067,-1.1426],[130.7381,-1.1676],[130.7439,-1.2308],[130.7727,-1.2634],[130.8115,-1.268],[130.8559,-1.3434],[130.9006,-1.3208],[130.963,-1.3585],[130.9911,-1.3371],[130.9999,-1.2825],[131.0442,-1.2408],[131.0345,-1.1953],[130.9492,-1.128],[130.8637,-1.1327],[130.8404,-1.1093],[130.7045,-1.052]]],[[[131.332,-1.3543],[131.3107,-1.4076],[131.3621,-1.3997],[131.332,-1.3543]]],[[[131.7346,-1.4473],[131.7153,-1.4278],[131.5928,-1.4649],[131.5869,-1.4841],[131.6367,-1.5452],[131.7326,-1.5088],[131.7346,-1.4473]]]]},"properties":{"name":"Sorong","short":"Sorong"}},{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[131.3573,-0.7818],[131.2357,-0.8304],[131.2511,-0.8774],[131.3343,-0.9475],[131.3944,-0.9351],[131.3704,-0.8896],[131.3764,-0.8404],[131.3573,-0.7818]]]},"properties":{"name":"Kota Sorong","short":"Kota Sorong"}}]};
+
+/* ---------------------------------------------------------------------
+   INDICATOR DEFINITIONS
+   One entry per indicator family. This is the part you'll most likely
+   want to tweak (labels, category grouping, good/bad direction) —
+   everything else in the app reads from this list.
+
+   direction: 'bad_high'  -> high value = concerning   (red = high)
+              'good_high' -> high value = good coverage (red = low)
+--------------------------------------------------------------------- */
+const INDICATOR_DEFS = [
+  // ---- Maternal & Child Health ----
+  { key: 'Stunting2024',   label: 'Stunting (SSGI 2024)',              category: 'kia', unit: '%',     direction: 'bad_high',  single: true, column: 'Stunting2024' },
+  { key: 'BirthNakes2025', label: 'Birth Attended by Health Worker',   category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'BirthNakes2025' },
+  { key: 'BirthFaskes',    label: 'Facility-Based Delivery',           category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'BirthFaskes' },
+  { key: 'ANCK4',          label: 'Antenatal Care — 4th Visit (K4)',   category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'ANCK4' },
+  { key: 'KNLengkap',      label: 'Complete Neonatal Visits (KN)',     category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'KNLengkap' },
+  { key: 'IDL2025',        label: 'Complete Basic Immunization (IDL)', category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'IDL2025' },
+  { key: 'TalakResp',      label: 'Pneumonia Case Management',         category: 'kia', unit: '%',     direction: 'good_high', single: true, column: 'TalakResp' },
+
+  // ---- Health Workforce ----
+  { key: 'TenagaMedis',    label: 'Medical Doctors',                   category: 'nakes', unit: 'staff', direction: 'good_high', single: true, column: 'TenagaMedis' },
+  { key: 'TenagaPerawat',  label: 'Nurses',                            category: 'nakes', unit: 'staff', direction: 'good_high', single: true, column: 'TenagaPerawat' },
+  { key: 'TenagaFarmasi',  label: 'Pharmacy Staff',                    category: 'nakes', unit: 'staff', direction: 'good_high', single: true, column: 'TenagaFarmasi' },
+  { key: 'TenagaKesmas',   label: 'Public Health Staff',               category: 'nakes', unit: 'staff', direction: 'good_high', single: true, column: 'TenagaKesmas' },
+  { key: 'TenagaGizi',     label: 'Nutrition Staff',                   category: 'nakes', unit: 'staff', direction: 'good_high', single: true, column: 'TenagaGizi' },
+
+  // ---- Primary Care Facilities ----
+  { key: 'PKMRanap',       label: 'Puskesmas — with Inpatient',        category: 'faskes', unit: 'units', direction: 'good_high', single: true, column: 'PKMRanap' },
+  { key: 'PKMTanpaRanap',  label: 'Puskesmas — without Inpatient',     category: 'faskes', unit: 'units', direction: 'good_high', single: true, column: 'PKMTanpaRanap' },
+
+  // ---- Communicable Disease (higher = greater burden = priority) ----
+  { key: 'Kusta',          label: 'Leprosy — new cases /100k (2024)',  category: 'penyakit', unit: '/100k', direction: 'bad_high', single: true, column: 'Kusta' },
+  { key: 'Malaria',        label: 'Malaria — API /1,000 (2024)',       category: 'penyakit', unit: '/1k',   direction: 'bad_high', single: true, column: 'Malaria' },
+  { key: 'Dengue',         label: 'Dengue — cases /100k (2024)',       category: 'penyakit', unit: '/100k', direction: 'bad_high', single: true, column: 'Dengue' },
+
+  // ---- Indices ----
+  { key: 'IKP',            label: 'Food Security Index (IKP, 2023)',   category: 'indeks', unit: 'index', direction: 'good_high', single: true, column: 'IKP' },
+  { key: 'IRBI',           label: 'Disaster Risk Index (IRBI, 2025)',  category: 'indeks', unit: 'index', direction: 'bad_high',  single: true, column: 'IRBI' },
+];
+
+const CATEGORY_LABELS = {
+  kia: 'Maternal & Child Health',
+  nakes: 'Health Workforce',
+  faskes: 'Primary Care Facilities',
+  penyakit: 'Communicable Disease',
+  indeks: 'Indices'
+};
+
+function indicatorByKey(key) { return INDICATOR_DEFS.find(d => d.key === key); }
+
+function columnFor(def, year) {
+  if (def.single) return def.column || def.key;
+  return def.key + year;
+}
+
+// Normalized (z-score) column name for an indicator: raw column + "_z".
+// e.g. Stunting2023 -> Stunting2023_z, IRBI -> IRBI_z, PMK2024 -> PMK2024_z
+function zColumnFor(def, year) {
+  return columnFor(def, year) + '_z';
+}
+
+function formatValue(def, val) {
+  if (val === null || val === undefined || isNaN(val)) return '–';
+  if (def.unit === '%') return val.toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%';
+  return val.toLocaleString('en-US');
+}
+
+
+/* =========================================================================
+   DEMO / FALLBACK DATA — used until you wire up CONFIG.SHEET_CSV_URL
+   Rows here mirror your real sheet's columns exactly (NO, Kab Kota, plus
+   every Stunting2023 / HPAI2024 / IRBI / ...-style column).
+   ========================================================================= */
+const DEMO_DATA = [{"KabKota":"Raja Ampat","Stunting2024":37.4,"BirthNakes2025":54.33,"IDL2025":37.94,"TalakResp":21.7,"ANCK4":57,"BirthFaskes":63.2,"KNLengkap":23.4,"TenagaMedis":61,"TenagaPerawat":412,"TenagaFarmasi":59,"TenagaKesmas":75,"TenagaGizi":50,"PKMRanap":3,"PKMTanpaRanap":21,"Kusta":117.91,"Malaria":15.99,"Dengue":81.35,"IKP":44.12,"IRBI":245.97,"Stunting2024_z":1.108,"BirthNakes2025_z":-1.146,"IDL2025_z":-1.491,"TalakResp_z":-0.642,"ANCK4_z":-0.096,"BirthFaskes_z":0.741,"KNLengkap_z":-0.848,"TenagaMedis_z":-0.122,"TenagaPerawat_z":0.084,"TenagaFarmasi_z":0.115,"TenagaKesmas_z":0.228,"TenagaGizi_z":0.985,"PKMRanap_z":0.566,"PKMTanpaRanap_z":0.642,"Kusta_z":0.957,"Malaria_z":0.572,"Dengue_z":1.338,"IKP_z":-0.281,"IRBI_z":0.744},{"KabKota":"Sorong","Stunting2024":25.1,"BirthNakes2025":94.79,"IDL2025":51.55,"TalakResp":56.7,"ANCK4":55.9,"BirthFaskes":76.4,"KNLengkap":72.21,"TenagaMedis":109,"TenagaPerawat":638,"TenagaFarmasi":72,"TenagaKesmas":114,"TenagaGizi":52,"PKMRanap":2,"PKMTanpaRanap":25,"Kusta":72.25,"Malaria":9.61,"Dengue":77.97,"IKP":46.99,"IRBI":240.53,"Stunting2024_z":-1.392,"BirthNakes2025_z":1.26,"IDL2025_z":-0.287,"TalakResp_z":0.293,"ANCK4_z":-0.151,"BirthFaskes_z":1.332,"KNLengkap_z":1.153,"TenagaMedis_z":0.658,"TenagaPerawat_z":1.054,"TenagaFarmasi_z":0.472,"TenagaKesmas_z":1.388,"TenagaGizi_z":1.147,"PKMRanap_z":-0.113,"PKMTanpaRanap_z":1.341,"Kusta_z":0.012,"Malaria_z":-0.145,"Dengue_z":1.239,"IKP_z":-0.075,"IRBI_z":0.478},{"KabKota":"Sorong Selatan","Stunting2024":31.3,"BirthNakes2025":60.12,"IDL2025":50.38,"TalakResp":77.9,"ANCK4":59.5,"BirthFaskes":36.3,"KNLengkap":58.99,"TenagaMedis":42,"TenagaPerawat":303,"TenagaFarmasi":40,"TenagaKesmas":39,"TenagaGizi":31,"PKMRanap":4,"PKMTanpaRanap":12,"Kusta":19.28,"Malaria":1.99,"Dengue":10.66,"IKP":48.46,"IRBI":221.33,"Stunting2024_z":-0.132,"BirthNakes2025_z":-0.802,"IDL2025_z":-0.39,"TalakResp_z":0.86,"ANCK4_z":0.029,"BirthFaskes_z":-0.463,"KNLengkap_z":0.611,"TenagaMedis_z":-0.431,"TenagaPerawat_z":-0.384,"TenagaFarmasi_z":-0.408,"TenagaKesmas_z":-0.843,"TenagaGizi_z":-0.553,"PKMRanap_z":1.246,"PKMTanpaRanap_z":-0.933,"Kusta_z":-1.084,"Malaria_z":-1.001,"Dengue_z":-0.729,"IKP_z":0.03,"IRBI_z":-0.463},{"KabKota":"Maybrat","Stunting2024":30.7,"BirthNakes2025":71.9,"IDL2025":60.46,"TalakResp":0,"ANCK4":92.7,"BirthFaskes":33.7,"KNLengkap":29.54,"TenagaMedis":8,"TenagaPerawat":210,"TenagaFarmasi":26,"TenagaKesmas":61,"TenagaGizi":35,"PKMRanap":3,"PKMTanpaRanap":16,"Kusta":28.85,"Malaria":0.48,"Dengue":12.76,"IKP":41.6,"IRBI":197.09,"Stunting2024_z":-0.254,"BirthNakes2025_z":-0.101,"IDL2025_z":0.502,"TalakResp_z":-1.222,"ANCK4_z":1.691,"BirthFaskes_z":-0.58,"KNLengkap_z":-0.596,"TenagaMedis_z":-0.984,"TenagaPerawat_z":-0.783,"TenagaFarmasi_z":-0.793,"TenagaKesmas_z":-0.188,"TenagaGizi_z":-0.229,"PKMRanap_z":0.566,"PKMTanpaRanap_z":-0.233,"Kusta_z":-0.886,"Malaria_z":-1.171,"Dengue_z":-0.668,"IKP_z":-0.462,"IRBI_z":-1.651},{"KabKota":"Tambrauw","Stunting2024":37.9,"BirthNakes2025":67.56,"IDL2025":71.8,"TalakResp":21.5,"ANCK4":29.9,"BirthFaskes":15.2,"KNLengkap":14.74,"TenagaMedis":20,"TenagaPerawat":105,"TenagaFarmasi":16,"TenagaKesmas":23,"TenagaGizi":19,"PKMRanap":1,"PKMTanpaRanap":20,"Kusta":139.38,"Malaria":24.13,"Dengue":15.4,"IKP":32.88,"IRBI":226.37,"Stunting2024_z":1.209,"BirthNakes2025_z":-0.359,"IDL2025_z":1.505,"TalakResp_z":-0.648,"ANCK4_z":-1.452,"BirthFaskes_z":-1.408,"KNLengkap_z":-1.203,"TenagaMedis_z":-0.788,"TenagaPerawat_z":-1.234,"TenagaFarmasi_z":-1.068,"TenagaKesmas_z":-1.318,"TenagaGizi_z":-1.525,"PKMRanap_z":-0.793,"PKMTanpaRanap_z":0.467,"Kusta_z":1.401,"Malaria_z":1.487,"Dengue_z":-0.59,"IKP_z":-1.088,"IRBI_z":-0.216},{"KabKota":"Kota Sorong","Stunting2024":29.3,"BirthNakes2025":92.92,"IDL2025":56.61,"TalakResp":96.6,"ANCK4":58.5,"BirthFaskes":55.1,"KNLengkap":65.59,"TenagaMedis":171,"TenagaPerawat":687,"TenagaFarmasi":116,"TenagaKesmas":92,"TenagaGizi":40,"PKMRanap":0,"PKMTanpaRanap":10,"Kusta":52.24,"Malaria":13.19,"Dengue":15.4,"IKP":74.18,"IRBI":253.41,"Stunting2024_z":-0.539,"BirthNakes2025_z":1.148,"IDL2025_z":0.161,"TalakResp_z":1.36,"ANCK4_z":-0.021,"BirthFaskes_z":0.378,"KNLengkap_z":0.882,"TenagaMedis_z":1.666,"TenagaPerawat_z":1.264,"TenagaFarmasi_z":1.682,"TenagaKesmas_z":0.734,"TenagaGizi_z":0.175,"PKMRanap_z":-1.472,"PKMTanpaRanap_z":-1.283,"Kusta_z":-0.402,"Malaria_z":0.258,"Dengue_z":-0.59,"IKP_z":1.876,"IRBI_z":1.109}];
+
+/* ---------------------------------------------------------------------
+   Name matching
+--------------------------------------------------------------------- */
+function normName(s) {
+  let x = (s || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')  // punctuation -> space (handles "KAB." etc.)
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Expand the "kab" abbreviation to "kabupaten" ONLY when it's a standalone
+  // prefix (followed by a space), so "kabupaten bogor" is left untouched.
+  if (/^kab\s/.test(x)) x = 'kabupaten ' + x.slice(4);
+  return x.trim();
+}
+
+const regionByNormName = {};
+PBD_GEOJSON.features.forEach(f => {
+  regionByNormName[normName(f.properties.name)] = f;
+  regionByNormName[normName(f.properties.short)] = f;
+});
+
+/* ---------------------------------------------------------------------
+   State
+--------------------------------------------------------------------- */
+const state = {
+  dataByRegion: {},        // { 'KAB BOGOR': { Stunting2023: 1.65, ... } }
+  dataByNorm: {},          // normalized-name -> row, for matching geojson names
+  regionRows: [],          // array of raw rows as parsed (for iteration)
+  category: 'kia',
+  indicatorKey: 'Stunting2024',
+  year: 2023,
+  colorMode: 'highlight',   // 'highlight' | 'diverging' | 'raw'
+  selectedRegion: null
+};
+
+function currentDef() { return indicatorByKey(state.indicatorKey); }
+
+/* ---------------------------------------------------------------------
+   Ingest — CONFIG.COLS.region tells us which column holds the region name;
+   every other column is kept as-is (numbers coerced where possible).
+--------------------------------------------------------------------- */
+function ingestRows(raw) {
+  const regionCol = CONFIG.COLS.region;
+  const byRegion = {};
+  const byNorm = {};
+  const rows = [];
+  raw.forEach(r => {
+    const keys = Object.keys(r).reduce((m, k) => { m[k.toLowerCase().trim()] = k; return m; }, {});
+    const regionKey = keys[regionCol.toLowerCase()];
+    if (!regionKey) return;
+    const regionName = (r[regionKey] || '').toString().trim();
+    if (!regionName) return;
+    const clean = {};
+    Object.keys(r).forEach(k => {
+      if (k === regionKey) return;
+      const raw_v = r[k];
+      const num = parseFloat(raw_v);
+      clean[k.trim()] = (raw_v !== '' && !isNaN(num)) ? num : raw_v;
+    });
+    byRegion[regionName] = clean;
+    byNorm[normName(regionName)] = clean;   // normalized key for map matching
+    rows.push({ region: regionName, ...clean });
+  });
+  return { byRegion, byNorm, rows };
+}
+
+function valueForRegion(regionName, def, year) {
+  // Match the geojson region name to a data row via normalized names, so
+  // "Kabupaten Bogor" (map) lines up with "KAB BOGOR" (sheet).
+  const row = state.dataByNorm[normName(regionName)] || state.dataByRegion[regionName];
+  if (!row) return null;
+  const col = columnFor(def, year);
+  const v = row[col];
+  return (v === undefined || v === '' || v === null) ? null : Number(v);
+}
+
+// Normalized z-score for a region, if a matching "_z" column exists in the data.
+// Returns null when there's no z column (caller then falls back to raw scaling).
+function zForRegion(regionName, def, year) {
+  const row = state.dataByNorm[normName(regionName)] || state.dataByRegion[regionName];
+  if (!row) return null;
+  const zcol = zColumnFor(def, year);
+  const v = row[zcol];
+  // Treat blanks, Excel error strings (#DIV/0!, #N/A, ...), and anything
+  // non-numeric as "no z-score here" -> caller falls back to raw scaling.
+  if (v === undefined || v === null || v === '') return null;
+  if (typeof v === 'string' && (v.trim() === '' || v.indexOf('#') === 0)) return null;
+  const num = Number(v);
+  if (isNaN(num)) return null;
+  return num;
+}
+
+// Does the current indicator/year have any z-score data at all?
+function hasZData(def, year) {
+  return PBD_GEOJSON.features.some(f => zForRegion(f.properties.name, def, year) !== null);
+}
+
+/* ---------------------------------------------------------------------
+   Color scales
+
+   Three color modes, chosen via the toggle:
+     'highlight'  z-score near 0 -> white; the WORSE tail deepens to red.
+                  Neutral/good areas stay pale; problem areas pop.
+     'diverging'  good end -> green, middle -> yellow, bad end -> red,
+                  spread across the z-score (or raw) range.
+     'raw'        legacy behaviour: scale straight off the raw value.
+
+   In every mode, "worse" is oriented by each indicator's `direction`
+   (bad_high vs good_high), so red always marks the concerning end.
+   Color is driven by the "_z" column when present; otherwise it falls
+   back to the raw value so the map still works before you add z-scores.
+--------------------------------------------------------------------- */
+const Z_CLAMP = 2.5;  // z-scores beyond ±this saturate the color
+
+function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgbToHex(rgb) { return '#' + rgb.map(v => Math.round(v).toString(16).padStart(2, '0')).join(''); }
+function lerpColor(a, b, t) { return a.map((v, i) => v + (b[i] - v) * t); }
+
+// interpolate across an arbitrary list of hex stops, t in [0,1]
+function rampAt(stops, t) {
+  t = Math.min(1, Math.max(0, t));
+  const n = stops.length - 1;
+  const seg = Math.min(n - 1, Math.floor(t * n));
+  const localT = t * n - seg;
+  return rgbToHex(lerpColor(hexToRgb(stops[seg]), hexToRgb(stops[seg + 1]), localT));
+}
+
+const HIGHLIGHT_STOPS = ['#ffffff', '#fde2df', '#f4a8a0', '#e2635c', '#b91d24'];   // white -> red
+const DIVERGING_STOPS = ['#1a9c6b', '#8fce77', '#f2d24b', '#e8913c', '#cc3d3d'];   // green -> yellow -> red
+const NO_DATA = '#e9edf4';
+
+// "severity" in [0,1]: 0 = best/neutral, 1 = worst, already direction-oriented
+function severityFromZ(z, direction) {
+  // orient so higher severity = worse
+  const s = direction === 'good_high' ? -z : z;   // now positive = worse
+  // map [-Z_CLAMP, +Z_CLAMP] -> [0,1]
+  return Math.min(1, Math.max(0, (s + Z_CLAMP) / (2 * Z_CLAMP)));
+}
+function severityFromRaw(val, minV, maxV, direction) {
+  let ratio = (maxV > minV) ? (val - minV) / (maxV - minV) : 0.5;
+  if (direction === 'good_high') ratio = 1 - ratio;
+  return ratio;   // 0 = best, 1 = worst
+}
+
+// Returns a fill color for one region given the active mode.
+function colorForRegion(def, regionName, year, ctx) {
+  const z = ctx.useZ ? zForRegion(regionName, def, year) : null;
+  const raw = valueForRegion(regionName, def, year);
+  if ((z === null || z === undefined) && (raw === null || raw === undefined)) return NO_DATA;
+
+  if (ctx.mode === 'highlight') {
+    // highlight only the worse tail; needs a severity where 0.5 = neutral(z=0)
+    let sev;
+    if (z !== null) {
+      // for highlight we want z=0 -> white, so remap: only the worse half matters
+      const oriented = def.direction === 'good_high' ? -z : z;   // positive = worse
+      sev = Math.min(1, Math.max(0, oriented / Z_CLAMP));         // 0 at z<=0, 1 at z>=clamp
+    } else {
+      sev = severityFromRaw(raw, ctx.minV, ctx.maxV, def.direction);
+    }
+    return rampAt(HIGHLIGHT_STOPS, sev);
+  }
+
+  // diverging (and default)
+  let sev;
+  if (z !== null) sev = severityFromZ(z, def.direction);
+  else sev = severityFromRaw(raw, ctx.minV, ctx.maxV, def.direction);
+  return rampAt(DIVERGING_STOPS, sev);
+}
+
+// Build the CSS gradient shown in the legend, matching the active mode.
+function legendGradient(mode) {
+  const stops = mode === 'highlight' ? HIGHLIGHT_STOPS : DIVERGING_STOPS;
+  return 'linear-gradient(90deg,' + stops.join(',') + ')';
+}
+
+/* ---------------------------------------------------------------------
+   Map
+--------------------------------------------------------------------- */
+const map = L.map('map', { zoomControl: true, attributionControl: false, scrollWheelZoom: true });
+let geoLayer = null;
+let labelLayers = [];
+
+function renderDetail(regionFullName) {
+  const hint = document.getElementById('detailHint');
+  const card = document.getElementById('detailCard');
+  if (!regionFullName) { hint.style.display = ''; card.innerHTML = ''; return; }
+  hint.style.display = 'none';
+
+  const def = currentDef();
+  let trendRows = '';
+  if (def.single) {
+    const v = valueForRegion(regionFullName, def, null);
+    trendRows = `<tr><td class="k">${def.label}</td><td class="v">${formatValue(def, v)}</td></tr>`;
+  } else {
+    def.years.forEach(y => {
+      const v = valueForRegion(regionFullName, def, y);
+      const isCur = y === state.year;
+      trendRows += `<tr><td class="k"${isCur ? ' style="font-weight:700;color:var(--ink);"' : ''}>${y}</td><td class="v"${isCur ? ' style="color:var(--accent);"' : ''}>${formatValue(def, v)}</td></tr>`;
+    });
+  }
+
+  const others = INDICATOR_DEFS.filter(d => d.category === def.category && d.key !== def.key).slice(0, 5);
+  let othersRows = others.map(d => {
+    const y = d.single ? null : (d.years.includes(state.year) ? state.year : d.years[d.years.length - 1]);
+    const v = valueForRegion(regionFullName, d, y);
+    return `<tr><td class="k">${d.label}${y ? ' (' + y + ')' : ''}</td><td class="v">${formatValue(d, v)}</td></tr>`;
+  }).join('');
+
+  card.innerHTML = `<div class="detail-card">
+    <div class="detail-region">${regionFullName}</div>
+    <table>${trendRows}</table>
+  </div>
+  <div class="detail-card">
+    <div class="detail-region" style="font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em;">Other indicators — ${CATEGORY_LABELS[def.category]}</div>
+    <table>${othersRows}</table>
+  </div>`;
+}
+
+function renderMap() {
+  const def = currentDef();
+  const year = def.single ? null : state.year;
+  const vals = PBD_GEOJSON.features
+    .map(f => valueForRegion(f.properties.name, def, year))
+    .filter(v => v !== null && v !== undefined);
+  const minV = vals.length ? Math.min(...vals) : 0;
+  const maxV = vals.length ? Math.max(...vals) : 0;
+
+  // Decide whether this indicator/year is colored by z-scores.
+  const zAvailable = hasZData(def, year);
+  const useZ = zAvailable && state.colorMode !== 'raw';
+  const effectiveMode = state.colorMode === 'raw' ? 'diverging' : state.colorMode; // 'raw' just means "use raw values with diverging ramp"
+  const ctx = { mode: effectiveMode, useZ, minV, maxV };
+
+  if (geoLayer) map.removeLayer(geoLayer);
+  labelLayers.forEach(l => map.removeLayer(l));
+  labelLayers = [];
+
+  geoLayer = L.geoJSON(PBD_GEOJSON, {
+    style: (f) => ({
+      fillColor: colorForRegion(def, f.properties.name, year, ctx),
+      weight: 1, color: '#ffffff', fillOpacity: 0.95
+    }),
+    onEachFeature: (feature, layer) => {
+      const v = valueForRegion(feature.properties.name, def, year);
+      layer.on('mouseover', () => { layer.setStyle({ weight: 2.5, color: '#1c2230' }); renderDetail(feature.properties.name); });
+      layer.on('mouseout', () => { layer.setStyle({ weight: 1, color: '#fff' }); });
+      layer.on('click', () => { state.selectedRegion = feature.properties.name; renderDetail(feature.properties.name); });
+
+      if (document.getElementById('showLabels').checked) {
+        const center = layer.getBounds().getCenter();
+        const lbl = L.marker(center, {
+          icon: L.divIcon({
+            className: 'region-label-icon',
+            html: `<div style="font-size:9px;font-weight:800;color:#1c2230;text-shadow:0 1px 2px rgba(255,255,255,.75);text-align:center;">${formatValue(def, v)}</div>`,
+            iconSize: [60, 16], iconAnchor: [30, 8]
+          }),
+          interactive: false
+        }).addTo(map);
+        labelLayers.push(lbl);
+      }
+    }
+  }).addTo(map);
+
+  map.invalidateSize();
+  map.fitBounds(geoLayer.getBounds(), { padding: [10, 10] });
+
+  // Legend reflects active mode + whether z or raw is driving color.
+  document.getElementById('legendScale').style.background = legendGradient(effectiveMode);
+  const low = document.getElementById('legendLow');
+  const high = document.getElementById('legendHigh');
+  if (effectiveMode === 'highlight') {
+    low.textContent = 'Neutral';
+    high.textContent = 'Worse';
+  } else {
+    low.textContent = 'Better';
+    high.textContent = 'Worse';
+  }
+  const rangeTxt = def.unit === '%'
+    ? `${minV.toLocaleString('en-US', { maximumFractionDigits: 1 })}% – ${maxV.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
+    : `${minV.toLocaleString('en-US')} – ${maxV.toLocaleString('en-US')}`;
+  document.getElementById('legendRange').textContent =
+    (useZ ? 'color: z-score · ' : 'color: raw · ') + 'range ' + rangeTxt;
+}
+
+/* ---------------------------------------------------------------------
+   Stats + ranking
+--------------------------------------------------------------------- */
+function renderStats() {
+  const def = currentDef();
+  const year = def.single ? null : state.year;
+  const entries = PBD_GEOJSON.features.map(f => ({
+    region: f.properties.name,
+    val: valueForRegion(f.properties.name, def, year)
+  })).filter(e => e.val !== null && e.val !== undefined);
+
+  const isPercent = def.unit === '%';
+  const total = entries.reduce((s, e) => s + e.val, 0);
+  const avg = entries.length ? total / entries.length : 0;
+  // "With a value" means: has data AND (for counts) is greater than zero,
+  // i.e. how many regions actually recorded a case. For percentages, any
+  // region with a reported figure counts.
+  const withData = isPercent
+    ? entries.length
+    : entries.filter(e => e.val > 0).length;
+
+  // "Worst first" ranking: for bad_high indicators that's highest value,
+  // for good_high (coverage) indicators that's LOWEST value.
+  const worstFirst = [...entries].sort((a, b) =>
+    def.direction === 'good_high' ? a.val - b.val : b.val - a.val);
+  const extreme = worstFirst[0];
+
+  // Primary stat: percentages show the AVERAGE (summing % is meaningless);
+  // counts show the TOTAL across regions.
+  document.getElementById('statTotal').textContent = isPercent
+    ? avg.toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%'
+    : total.toLocaleString('en-US');
+  document.getElementById('statTotalLbl').textContent = isPercent
+    ? `Average ${def.label}` + (year ? ` (${year})` : '')
+    : `Total ${def.label}` + (year ? ` (${year})` : '');
+
+  document.getElementById('statCoverage').textContent = `${withData}/${PBD_GEOJSON.features.length}`;
+  document.getElementById('statCoverageLbl').textContent = isPercent
+    ? 'Kab/kota with data'
+    : 'Kab/kota with a case';
+  document.getElementById('statMax').textContent = extreme ? formatValue(def, extreme.val) : '–';
+  document.getElementById('statMaxLbl').textContent = def.direction === 'good_high'
+    ? 'Lowest value (most at risk)'
+    : 'Highest value (most affected)';
+
+  document.getElementById('mapTitle').textContent = def.label + (year ? ` — ${year}` : '');
+  document.getElementById('mapCtx').textContent = `${CATEGORY_LABELS[def.category]} · ${def.direction === 'good_high' ? 'higher is better' : 'higher is worse'}`;
+  document.getElementById('subtitleText').textContent = `6 kabupaten/kota · ${INDICATOR_DEFS.length} indicators`;
+
+  document.getElementById('top5Title').textContent = def.direction === 'good_high'
+    ? 'Top 5 — lowest (priority)'
+    : 'Top 5 — highest';
+
+  const top5 = worstFirst.slice(0, 5);
+  const barMax = Math.max(...entries.map(e => e.val), 1);
+  document.getElementById('top5List').innerHTML = top5.map((e, i) => `
+    <div class="top5-row">
+      <span class="rank r${i + 1}">${i + 1}</span>
+      <span class="name" title="${e.region}">${e.region}</span>
+      <span class="bar-bg"><span class="bar-fill" style="width:${barMax ? (e.val / barMax * 100) : 0}%"></span></span>
+      <span class="val">${formatValue(def, e.val)}</span>
+    </div>
+  `).join('');
+}
+
+/* ---------------------------------------------------------------------
+   Controls
+--------------------------------------------------------------------- */
+function populateCategorySelect() {
+  const sel = document.getElementById('categorySelect');
+  sel.innerHTML = Object.keys(CATEGORY_LABELS).map(c =>
+    `<option value="${c}" ${c === state.category ? 'selected' : ''}>${CATEGORY_LABELS[c]}</option>`
+  ).join('');
+}
+
+function populateIndicatorSelect() {
+  const sel = document.getElementById('diseaseSelect');
+  const opts = INDICATOR_DEFS.filter(d => d.category === state.category);
+  if (!opts.find(d => d.key === state.indicatorKey)) state.indicatorKey = opts[0].key;
+  sel.innerHTML = opts.map(d => `<option value="${d.key}" ${d.key === state.indicatorKey ? 'selected' : ''}>${d.label}</option>`).join('');
+}
+
+function populateYearSelect() {
+  const def = currentDef();
+  const wrap = document.getElementById('yearField');
+  const sel = document.getElementById('yearSelect');
+  if (def.single) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  if (!def.years.includes(state.year)) state.year = def.years[def.years.length - 1];
+  sel.innerHTML = def.years.map(y => `<option value="${y}" ${y === state.year ? 'selected' : ''}>${y}</option>`).join('');
+}
+
+function rerender() {
+  renderMap();
+  renderStats();
+  renderDetail(state.selectedRegion);
+}
+
+function wireControls() {
+  document.getElementById('categorySelect').addEventListener('change', (e) => {
+    state.category = e.target.value;
+    populateIndicatorSelect();
+    populateYearSelect();
+    rerender();
+  });
+  document.getElementById('diseaseSelect').addEventListener('change', (e) => {
+    state.indicatorKey = e.target.value;
+    populateYearSelect();
+    rerender();
+  });
+  document.getElementById('yearSelect').addEventListener('change', (e) => {
+    state.year = parseInt(e.target.value, 10);
+    rerender();
+  });
+  const modeBtns = { highlight: 'btnHighlight', diverging: 'btnDiverging', raw: 'btnRaw' };
+  Object.entries(modeBtns).forEach(([mode, id]) => {
+    document.getElementById(id).addEventListener('click', () => setColorMode(mode));
+  });
+  document.getElementById('showLabels').addEventListener('change', () => renderMap());
+  document.getElementById('refreshBtn').addEventListener('click', () => loadData(true));
+}
+
+function setColorMode(mode) {
+  state.colorMode = mode;
+  const map = { highlight: 'btnHighlight', diverging: 'btnDiverging', raw: 'btnRaw' };
+  Object.entries(map).forEach(([m, id]) =>
+    document.getElementById(id).classList.toggle('active', m === mode));
+  renderMap();
+}
+
+/* ---------------------------------------------------------------------
+   Data loading
+--------------------------------------------------------------------- */
+function setStatus(kind, text) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot' + (kind === 'live' ? '' : kind === 'stale' ? ' stale' : ' err');
+  document.getElementById('statusText').textContent = text;
+}
+function timeNow() { return new Date().toLocaleTimeString('en-US', { hour12: false }); }
+
+function applyData(raw) {
+  const { byRegion, byNorm, rows } = ingestRows(raw);
+  state.dataByRegion = byRegion;
+  state.dataByNorm = byNorm;
+  state.regionRows = rows;
+  populateCategorySelect();
+  populateIndicatorSelect();
+  populateYearSelect();
+  rerender();
+}
+
+function loadFromExcel(url) {
+  return fetch(url)
+    .then(resp => {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.arrayBuffer();
+    })
+    .then(buf => {
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheetName = CONFIG.EXCEL_SHEET_NAME || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      if (!ws) throw new Error('Sheet "' + sheetName + '" not found');
+      return XLSX.utils.sheet_to_json(ws, { defval: '' });
+    });
+}
+
+function loadFromCsv(url) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true, header: true, skipEmptyLines: true,
+      complete: (results) => resolve(results.data),
+      error: (err) => reject(err)
+    });
+  });
+}
+
+function loadData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+
+  let promise, sourceLabel;
+  if (CONFIG.EXCEL_URL) {
+    promise = loadFromExcel(CONFIG.EXCEL_URL);
+    sourceLabel = 'Excel file';
+  } else if (CONFIG.SHEET_CSV_URL) {
+    promise = loadFromCsv(CONFIG.SHEET_CSV_URL);
+    sourceLabel = 'spreadsheet';
+  } else {
+    applyData(DEMO_DATA);
+    setStatus('stale', `Demo data · connect your source in CONFIG.EXCEL_URL or CONFIG.SHEET_CSV_URL`);
+    btn.disabled = false;
+    return;
+  }
+
+  promise.then(data => {
+    if (!data.length) { applyData(DEMO_DATA); setStatus('err', `Data source empty — using bundled fallback · ${timeNow()}`); btn.disabled = false; return; }
+    applyData(data);
+    setStatus('live', `Live from ${sourceLabel} · ${timeNow()}`);
+    btn.disabled = false;
+  }).catch(err => {
+    applyData(DEMO_DATA);
+    setStatus('err', `Couldn't load ${sourceLabel} (${err.message}) — using bundled fallback · ${timeNow()}`);
+    btn.disabled = false;
+  });
+}
+
+/* ---------------------------------------------------------------------
+   Init
+--------------------------------------------------------------------- */
+wireControls();
+loadData();
+window.addEventListener('resize', () => { if (typeof map !== 'undefined') map.invalidateSize(); });
+
+</script>
+</body>
+</html>
